@@ -58,7 +58,8 @@ async function getSheetData(sheetId, aba) {
     const doc = new GoogleSpreadsheet(sheetId)
     await doc.useServiceAccountAuth(credentials)
     await doc.loadInfo()
-    const worksheet = doc.sheetsByTitle[aba]
+    
+	const worksheet = doc.sheetsByTitle[aba]
     const rows = await worksheet.getRows()
     return rows.map(r => {
         const obj = {}
