@@ -1,0 +1,21 @@
+{
+  "name": "baileys-test",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.2",
+    "google-spreadsheet": "^3.3.0",
+    "googleapis": "^159.0.0",
+    "node-fetch": "^3.3.2",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
