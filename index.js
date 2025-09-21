@@ -4,22 +4,32 @@ import qrcode from 'qrcode-terminal'
 import { GoogleSpreadsheet } from 'google-spreadsheet'
 import fs from 'fs'
 import express from 'express'
-
+import { JWT } from "google-auth-library"
 
 // 📌 Configurações das planilhas
 const PLANILHA_CADASTROS = '1QDP8Uo71gL_T9efOqtmSc5AoBTnYA8DlpgzYbTVIhoY'
 const PLANILHA_PEDIDOS = '1RbzDCYh7xaVmOxD1JLWDfpiw9HKhtw4r2zKxcmCfFsE'
 
 // 📌 Carregar credenciais do Google
-// 📌 Carregar credenciais do Google
 let credentials
-if (process.env.CREDENCIAIS_JSON) {
-    // se estiver rodando na nuvem (Railway/Render), pega do ENV
-    credentials = JSON.parse(process.env.CREDENCIAIS_JSON)
-} else {
-    // se estiver rodando localmente, lê o arquivo
-    const CREDENCIAIS_PATH = './credentials.json'
-    credentials = JSON.parse(fs.readFileSync(CREDENCIAIS_PATH, 'utf-8'))
+try {
+    if (process.env.CREDENCIAIS_JSON) {
+        // 👉 se estiver rodando na nuvem (Railway/Render), pega do ENV
+        credentials = JSON.parse(process.env.CREDENCIAIS_JSON)
+        console.log("✅ Credenciais carregadas do ENV (CREDENCIAIS_JSON).")
+    } else {
+        // 👉 se estiver rodando localmente, lê o arquivo
+        const CREDENCIAIS_PATH = './credentials.json'
+        if (fs.existsSync(CREDENCIAIS_PATH)) {
+            credentials = JSON.parse(fs.readFileSync(CREDENCIAIS_PATH, 'utf-8'))
+            console.log("✅ Credenciais carregadas do arquivo credentials.json.")
+        } else {
+            throw new Error("Arquivo credentials.json não encontrado.")
+        }
+    }
+} catch (err) {
+    console.error("❌ Erro ao carregar credenciais do Google:", err.message)
+    process.exit(1)
 }
 
 // Estado temporário para cada usuário
@@ -55,19 +65,30 @@ function resetUserTimeout(sender) {
 
 // Função para recuperar dados de uma aba
 async function getSheetData(sheetId, aba) {
-    const doc = new GoogleSpreadsheet(sheetId)
-    await doc.useServiceAccountAuth(credentials)
-    await doc.loadInfo()
-    
-	const worksheet = doc.sheetsByTitle[aba]
-    const rows = await worksheet.getRows()
-    return rows.map(r => {
-        const obj = {}
-        worksheet.headerValues.forEach((h, i) => obj[h] = r._rawData[i])
-        return obj
-    })
-}
+    try {
+        const doc = new GoogleSpreadsheet(sheetId)
 
+        // ⚡ Novo método de autenticação (google-spreadsheet v4+)
+        await doc.useServiceAccountAuth({
+            client_email: credentials.client_email,
+            private_key: credentials.private_key.replace(/\\n/g, '\n'), // garante quebra de linha
+        })
+
+        await doc.loadInfo()
+        const worksheet = doc.sheetsByTitle[aba]
+        if (!worksheet) throw new Error(`Aba '${aba}' não encontrada na planilha`)
+
+        const rows = await worksheet.getRows()
+        return rows.map(r => {
+            const obj = {}
+            worksheet.headerValues.forEach((h, i) => obj[h] = r._rawData[i])
+            return obj
+        })
+    } catch (err) {
+        console.error(`❌ Erro ao buscar dados da planilha ${sheetId} > ${aba}:`, err.message)
+        return []
+    }
+}
 // Função para validar Nome + CRO
 function validarNomeCRO(resposta) {
     const partes = resposta.trim().split(/\s+/)
@@ -79,15 +100,27 @@ function validarNomeCRO(resposta) {
 
 // Função para salvar dentista em CLI_APR
 async function salvarDentistaAproximacao(numero, resposta) {
-    const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS)
-    await doc.useServiceAccountAuth(credentials)
-    await doc.loadInfo()
-    const aba = doc.sheetsByTitle['CLI_APR']
-    await aba.addRow({
-        FONE_APR: numero,
-        RESPOSTA: resposta,
-        DATA_REGISTRO: new Date().toLocaleString('pt-BR', { timeZone: 'America/Cuiaba' })
-    })
+    try {
+        const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS)
+        await doc.useServiceAccountAuth({
+            client_email: credentials.client_email,
+            private_key: credentials.private_key.replace(/\\n/g, '\n'),
+        })
+
+        await doc.loadInfo()
+        const aba = doc.sheetsByTitle['CLI_APR']
+        if (!aba) throw new Error("Aba 'CLI_APR' não encontrada.")
+
+        await aba.addRow({
+            FONE_APR: numero,
+            RESPOSTA: resposta,
+            DATA_REGISTRO: new Date().toLocaleString('pt-BR', { timeZone: 'America/Cuiaba' })
+        })
+
+        console.log(`✅ Dentista salvo em CLI_APR: ${numero} - ${resposta}`)
+    } catch (err) {
+        console.error("❌ Erro ao salvar dentista em CLI_APR:", err.message)
+    }
 }
 
 // Função para identificar perfil
@@ -116,70 +149,85 @@ async function gerarNumeroPedido() {
 }
 
 // Função para buscar valor do catálogo de um produto
+// 📌 Função para buscar valor do catálogo de um produto
 async function getValorCatalogo(produtoNome) {
-    const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS) // << agora usa a planilha CADASTROS
-    await doc.useServiceAccountAuth(credentials)
-    await doc.loadInfo()
+    try {
+        const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS)
+        await doc.useServiceAccountAuth({
+            client_email: credentials.client_email,
+            private_key: credentials.private_key.replace(/\\n/g, '\n'),
+        })
 
-    const aba = doc.sheetsByTitle['PRODUTOS'] // << aba PRODUTOS
-    if (!aba) {
-        console.error('Aba "PRODUTOS" não encontrada na planilha de CADASTROS.')
+        await doc.loadInfo()
+
+        const aba = doc.sheetsByTitle['PRODUTOS']
+        if (!aba) throw new Error('Aba "PRODUTOS" não encontrada na planilha de CADASTROS.')
+
+        const rows = await aba.getRows()
+        const alvo = String(produtoNome || '').trim().toLowerCase()
+        const encontrado = rows.find(r => String(r['PRODUTO'] || '').trim().toLowerCase() === alvo)
+
+        if (!encontrado) {
+            console.warn(`⚠️ Produto não encontrado no catálogo: "${produtoNome}"`)
+            return ''
+        }
+
+        // aceita tanto "VLR_CAT" quanto "VLR CAT" como header
+        return (encontrado['VLR_CAT'] ?? encontrado['VLR CAT'] ?? '').toString().trim()
+    } catch (err) {
+        console.error("❌ Erro ao buscar valor do catálogo:", err.message)
         return ''
     }
-
-    // Se os headers estiverem na linha 1, não precisa mexer. 
-    // Se estiverem em outra linha, descomente e ajuste:
-    // await aba.loadHeaderRow(1)
-
-    const rows = await aba.getRows()
-
-    const alvo = String(produtoNome || '').trim().toLowerCase()
-    const encontrado = rows.find(r => String(r['PRODUTO'] || '').trim().toLowerCase() === alvo)
-
-    if (!encontrado) {
-        console.warn(`Produto não encontrado em CADASTROS > PRODUTOS: "${produtoNome}"`)
-        return ''
-    }
-
-    // Tenta ambas as variações de header, por segurança
-    return (encontrado['VLR_CAT'] ?? encontrado['VLR CAT'] ?? '').toString().trim()
 }
+
 // Função para salvar pedido
 async function salvarPedido(clienteNome, pedido) {
-    const doc = new GoogleSpreadsheet(PLANILHA_PEDIDOS)
-    await doc.useServiceAccountAuth(credentials)
-    await doc.loadInfo()
-    const abaPedidos = doc.sheetsByTitle['PEDIDOS']
-    const abaItens = doc.sheetsByTitle['PEDIDOS_ITENS']
-    const nrPed = await gerarNumeroPedido()
-    const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-
-    // grava o pedido principal
-    await abaPedidos.addRow({
-        NR_PED: nrPed,
-        STATUS: 'Pedido Registrado',
-        CLIENTE: clienteNome,
-        PACIENTE: pedido.paciente,
-        DT_PED: hoje
-    })
-
-    // grava os itens do pedido
-    for (const item of pedido.itens) {
-        // ✅ garante que o valor do catálogo está atualizado
-        const valorCatalogo = await getValorCatalogo(item.produto)
-
-        await abaItens.addRow({
-            NR_PED: nrPed,
-            PRODUTO: item.produto,
-            QTDE: item.qtde,
-            COR: item.cor,
-            OBS: item.obs || '',
-            VLR_COB: valorCatalogo || '' // ✅ sempre gravado do catálogo
+    try {
+        const doc = new GoogleSpreadsheet(PLANILHA_PEDIDOS)
+        await doc.useServiceAccountAuth({
+            client_email: credentials.client_email,
+            private_key: credentials.private_key.replace(/\\n/g, '\n'),
         })
-    }
 
-    return nrPed
+        await doc.loadInfo()
+        const abaPedidos = doc.sheetsByTitle['PEDIDOS']
+        const abaItens = doc.sheetsByTitle['PEDIDOS_ITENS']
+        if (!abaPedidos || !abaItens) throw new Error("Aba 'PEDIDOS' ou 'PEDIDOS_ITENS' não encontrada.")
+
+        const nrPed = await gerarNumeroPedido()
+        const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+
+        // grava o pedido principal
+        await abaPedidos.addRow({
+            NR_PED: nrPed,
+            STATUS: 'Pedido Registrado',
+            CLIENTE: clienteNome,
+            PACIENTE: pedido.paciente,
+            DT_PED: hoje
+        })
+
+        // grava os itens do pedido
+        for (const item of pedido.itens) {
+            const valorCatalogo = await getValorCatalogo(item.produto)
+
+            await abaItens.addRow({
+                NR_PED: nrPed,
+                PRODUTO: item.produto,
+                QTDE: item.qtde,
+                COR: item.cor,
+                OBS: item.obs || '',
+                VLR_COB: valorCatalogo || ''
+            })
+        }
+
+        console.log(`✅ Pedido ${nrPed} salvo com sucesso.`)
+        return nrPed
+    } catch (err) {
+        console.error("❌ Erro ao salvar pedido:", err.message)
+        return null
+    }
 }
+
 
 // Função para buscar pedidos de um cliente (detalhado)
 async function getPedidosCliente(clienteNome, perfil = 'admin') {
