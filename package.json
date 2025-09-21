@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.2",
+    "express": "^5.1.0",
     "google-spreadsheet": "^3.3.0",
     "googleapis": "^159.0.0",
     "node-fetch": "^3.3.2",
