@@ -3,6 +3,8 @@ import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaile
 import qrcode from 'qrcode-terminal'
 import { GoogleSpreadsheet } from 'google-spreadsheet'
 import fs from 'fs'
+import express from 'express'
+
 
 // 📌 Configurações das planilhas
 const PLANILHA_CADASTROS = '1QDP8Uo71gL_T9efOqtmSc5AoBTnYA8DlpgzYbTVIhoY'
@@ -248,16 +250,22 @@ async function startBot() {
         syncFullHistory: false
     })
     sock.ev.on('creds.update', saveCreds)
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update
-        if (qr) qrcode.generate(qr, { small: true })
-        if (connection === 'open') console.log('✅ Bot conectado com sucesso!')
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
-            console.log('⚠️ Conexão fechada.', shouldReconnect ? 'Reconectando...' : 'Logout detectado.')
-            if (shouldReconnect) startBot()
-        }
-    })
+	sock.ev.on('connection.update', (update) => {
+		const { connection, lastDisconnect, qr } = update
+		if (qr) {
+			ultimoQR = qr
+			qrcode.generate(qr, { small: true }) // mantém no terminal
+		}
+		if (connection === 'open') {
+			console.log('✅ Bot conectado com sucesso!')
+			ultimoQR = null // zera o QR quando já conectou
+		}
+		if (connection === 'close') {
+			const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+			console.log('⚠️ Conexão fechada.', shouldReconnect ? 'Reconectando...' : 'Logout detectado.')
+			if (shouldReconnect) startBot()
+		}
+	})
 
     // 📩 Listener
     sock.ev.on('messages.upsert', async ({ messages }) => {
@@ -1154,5 +1162,25 @@ if (estado?.perfil === 'desconhecido') {
 
 }) // fecha messages.upsert
 } // fecha startBot
+
+let ultimoQR = null
+const app = express()
+
+app.get('/qrcode', (req, res) => {
+    if (!ultimoQR) {
+        return res.send('<h1>✅ Bot já conectado! Nenhum QR disponível.</h1>')
+    }
+    // Gera uma página com QR Code em imagem
+    const qrImage = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(ultimoQR)}`
+    res.send(`
+        <h1>Escaneie o QR Code para conectar</h1>
+        <img src="${qrImage}" />
+    `)
+})
+
+app.listen(3000, () => {
+    console.log('🌐 Servidor rodando em http://localhost:3000/qrcode')
+})
+
 
 startBot()
