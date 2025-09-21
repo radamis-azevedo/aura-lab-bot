@@ -18,5 +18,8 @@
     "node-fetch": "^3.3.2",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
