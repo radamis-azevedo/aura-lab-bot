@@ -9,8 +9,16 @@ const PLANILHA_CADASTROS = '1QDP8Uo71gL_T9efOqtmSc5AoBTnYA8DlpgzYbTVIhoY'
 const PLANILHA_PEDIDOS = '1RbzDCYh7xaVmOxD1JLWDfpiw9HKhtw4r2zKxcmCfFsE'
 
 // 📌 Carregar credenciais do Google
-const CREDENCIAIS_PATH = './credentials.json'
-const credentials = JSON.parse(fs.readFileSync(CREDENCIAIS_PATH, 'utf-8'))
+// 📌 Carregar credenciais do Google
+let credentials
+if (process.env.CREDENCIAIS_JSON) {
+    // se estiver rodando na nuvem (Railway/Render), pega do ENV
+    credentials = JSON.parse(process.env.CREDENCIAIS_JSON)
+} else {
+    // se estiver rodando localmente, lê o arquivo
+    const CREDENCIAIS_PATH = './credentials.json'
+    credentials = JSON.parse(fs.readFileSync(CREDENCIAIS_PATH, 'utf-8'))
+}
 
 // Estado temporário para cada usuário
 const userState = {}
