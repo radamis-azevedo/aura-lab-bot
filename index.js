@@ -145,38 +145,30 @@ async function gerarNumeroPedido() {
 }
 
 
-// 📌 Função para buscar valor do catálogo de um produto
+// Função para buscar valor do catálogo de um produto
 async function getValorCatalogo(produtoNome) {
-    try {
-		const serviceAccountAuth = new JWT({
-			email: credentials.client_email,
-			key: credentials.private_key,
-			scopes: ['https://www.googleapis.com/auth/spreadsheets']
-		})
-		const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS, serviceAccountAuth)
+    const auth = getGoogleAuth() // ✅ usa a função auxiliar
+    const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS, auth) 
+    await doc.loadInfo()
 
-
-        await doc.loadInfo()
-
-        const aba = doc.sheetsByTitle['PRODUTOS']
-        if (!aba) throw new Error('Aba "PRODUTOS" não encontrada na planilha de CADASTROS.')
-
-        const rows = await aba.getRows()
-        const alvo = String(produtoNome || '').trim().toLowerCase()
-        const encontrado = rows.find(r => String(r['PRODUTO'] || '').trim().toLowerCase() === alvo)
-
-        if (!encontrado) {
-            console.warn(`⚠️ Produto não encontrado no catálogo: "${produtoNome}"`)
-            return ''
-        }
-
-        // aceita tanto "VLR_CAT" quanto "VLR CAT" como header
-        return (encontrado['VLR_CAT'] ?? encontrado['VLR CAT'] ?? '').toString().trim()
-    } catch (err) {
-        console.error("❌ Erro ao buscar valor do catálogo:", err.message)
+    const aba = doc.sheetsByTitle['PRODUTOS']
+    if (!aba) {
+        console.error('Aba "PRODUTOS" não encontrada na planilha de CADASTROS.')
         return ''
     }
+
+    const rows = await aba.getRows()
+    const alvo = String(produtoNome || '').trim().toLowerCase()
+    const encontrado = rows.find(r => String(r['PRODUTO'] || '').trim().toLowerCase() === alvo)
+
+    if (!encontrado) {
+        console.warn(`Produto não encontrado em CADASTROS > PRODUTOS: "${produtoNome}"`)
+        return ''
+    }
+
+    return (encontrado['VLR_CAT'] ?? encontrado['VLR CAT'] ?? '').toString().trim()
 }
+
 
 // 📌 Função para salvar pedido
 async function salvarPedido(clienteNome, pedido) {
