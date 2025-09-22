@@ -32,6 +32,15 @@ try {
     process.exit(1)
 }
 
+// 📌 Função auxiliar para autenticar Google Sheets
+function getGoogleAuth() {
+    return new JWT({
+        email: credentials.client_email,
+        key: credentials.private_key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    })
+}
+
 // Estado temporário para cada usuário
 const userState = {}
 
@@ -63,20 +72,13 @@ function resetUserTimeout(sender) {
     }, 120000)
 }
 
-// Função para recuperar dados de uma aba
+// 📌 Função para recuperar dados de uma aba
 async function getSheetData(sheetId, aba) {
     try {
-        const doc = new GoogleSpreadsheet(sheetId)
-
-        // ⚡ Novo método de autenticação (google-spreadsheet v4+)
-        await doc.useServiceAccountAuth({
-            client_email: credentials.client_email,
-            private_key: credentials.private_key.replace(/\\n/g, '\n'), // garante quebra de linha
-        })
-
+        const doc = new GoogleSpreadsheet(sheetId, getGoogleAuth())
         await doc.loadInfo()
         const worksheet = doc.sheetsByTitle[aba]
-        if (!worksheet) throw new Error(`Aba '${aba}' não encontrada na planilha`)
+        if (!worksheet) throw new Error(`Aba ${aba} não encontrada`)
 
         const rows = await worksheet.getRows()
         return rows.map(r => {
@@ -89,6 +91,7 @@ async function getSheetData(sheetId, aba) {
         return []
     }
 }
+
 // Função para validar Nome + CRO
 function validarNomeCRO(resposta) {
     const partes = resposta.trim().split(/\s+/)
@@ -98,28 +101,21 @@ function validarNomeCRO(resposta) {
     return nome.length >= 4 && /^\d{3,}$/.test(cro)
 }
 
-// Função para salvar dentista em CLI_APR
+// 📌 Função para salvar dentista em CLI_APR
 async function salvarDentistaAproximacao(numero, resposta) {
     try {
-        const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS)
-        await doc.useServiceAccountAuth({
-            client_email: credentials.client_email,
-            private_key: credentials.private_key.replace(/\\n/g, '\n'),
-        })
-
+        const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS, getGoogleAuth())
         await doc.loadInfo()
         const aba = doc.sheetsByTitle['CLI_APR']
-        if (!aba) throw new Error("Aba 'CLI_APR' não encontrada.")
+        if (!aba) throw new Error('Aba CLI_APR não encontrada')
 
         await aba.addRow({
             FONE_APR: numero,
             RESPOSTA: resposta,
             DATA_REGISTRO: new Date().toLocaleString('pt-BR', { timeZone: 'America/Cuiaba' })
         })
-
-        console.log(`✅ Dentista salvo em CLI_APR: ${numero} - ${resposta}`)
     } catch (err) {
-        console.error("❌ Erro ao salvar dentista em CLI_APR:", err.message)
+        console.error(`❌ Erro ao salvar dentista em CLI_APR:`, err.message)
     }
 }
 
@@ -148,15 +144,17 @@ async function gerarNumeroPedido() {
     return ult + 1
 }
 
-// Função para buscar valor do catálogo de um produto
+
 // 📌 Função para buscar valor do catálogo de um produto
 async function getValorCatalogo(produtoNome) {
     try {
-        const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS)
-        await doc.useServiceAccountAuth({
-            client_email: credentials.client_email,
-            private_key: credentials.private_key.replace(/\\n/g, '\n'),
-        })
+		const serviceAccountAuth = new JWT({
+			email: credentials.client_email,
+			key: credentials.private_key,
+			scopes: ['https://www.googleapis.com/auth/spreadsheets']
+		})
+		const doc = new GoogleSpreadsheet(PLANILHA_CADASTROS, serviceAccountAuth)
+
 
         await doc.loadInfo()
 
@@ -180,19 +178,14 @@ async function getValorCatalogo(produtoNome) {
     }
 }
 
-// Função para salvar pedido
+// 📌 Função para salvar pedido
 async function salvarPedido(clienteNome, pedido) {
     try {
-        const doc = new GoogleSpreadsheet(PLANILHA_PEDIDOS)
-        await doc.useServiceAccountAuth({
-            client_email: credentials.client_email,
-            private_key: credentials.private_key.replace(/\\n/g, '\n'),
-        })
-
+        const doc = new GoogleSpreadsheet(PLANILHA_PEDIDOS, getGoogleAuth())
         await doc.loadInfo()
         const abaPedidos = doc.sheetsByTitle['PEDIDOS']
         const abaItens = doc.sheetsByTitle['PEDIDOS_ITENS']
-        if (!abaPedidos || !abaItens) throw new Error("Aba 'PEDIDOS' ou 'PEDIDOS_ITENS' não encontrada.")
+        if (!abaPedidos || !abaItens) throw new Error('Aba PEDIDOS ou PEDIDOS_ITENS não encontrada')
 
         const nrPed = await gerarNumeroPedido()
         const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
@@ -209,7 +202,6 @@ async function salvarPedido(clienteNome, pedido) {
         // grava os itens do pedido
         for (const item of pedido.itens) {
             const valorCatalogo = await getValorCatalogo(item.produto)
-
             await abaItens.addRow({
                 NR_PED: nrPed,
                 PRODUTO: item.produto,
@@ -220,10 +212,9 @@ async function salvarPedido(clienteNome, pedido) {
             })
         }
 
-        console.log(`✅ Pedido ${nrPed} salvo com sucesso.`)
         return nrPed
     } catch (err) {
-        console.error("❌ Erro ao salvar pedido:", err.message)
+        console.error(`❌ Erro ao salvar pedido:`, err.message)
         return null
     }
 }
